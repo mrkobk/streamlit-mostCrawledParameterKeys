@@ -7,10 +7,18 @@
 import streamlit as st
 import pandas as pd
 import csv
+from urllib.parse import urlparse, parse_qs
+import numpy as np
 
 
 
 # In[4]:
+
+def getParamKeys(url):
+  parsed_url = urlparse(url)
+  paramLst = parse_qs(parsed_url.query)
+  keys = [k for k in paramLst.keys()]
+  return keys
 
 st.set_page_config(layout="wide")
 st.title("What parameters are crawled most?")
@@ -31,36 +39,27 @@ st.info("Upload a CSV file with a list of URLs and a header name of your choise 
 
 if upload is not None:
     
-    file_details = {
-        "filename":upload.name,
-        "filetype":upload.type,
-        "filesize":upload.size
-                   }
     logs = pd.read_csv(upload)
     st.table(logs.head(10))
     
-    logs = logs[logs.iloc[:,0].str.contains('\?',regex=True)]
-    logs_p = logs.replace(".+\?","",regex=True)
-    logs_p = pd.DataFrame(logs_p.iloc[:,0].str.split('&').tolist())
-    logs_p = logs_p.replace("\=.+","",regex=True)
-
-    paramLst = pd.melt(logs_p).iloc[:,1]
-    paramLst = paramLst.value_counts().reset_index()
-    paramLst.dropna()
-
-    paramLst["total"] = logs_p.shape[0]
-    paramLst["%"] = (paramLst["value"] / paramLst["total"]).round(4)
-    paramLst = paramLst.rename(columns = {
-        "index":"param_key",
-        "value":"hits",
-        "total":"total_param_hits",
-        "%":"% of total"
-        })
-
+    logs.rename(columns={logs.columns[0]: "url_example"}, inplace=True)
+    logs["param_key"] = logs["url_example"].apply(getParamKeys)
+    params = logs.explode("param_key").value_counts().reset_index()
+    params = params.groupby("param_key", as_index=False).agg({
+    	"url_example":"first",
+    	0 :"sum"
+     })
+    															
+    params["total_param_hits"] = logs.shape[0]
+    params["% of total"] = (params[0] / params["total_param_hits"]).round(4)
+    params = params.rename(columns = {0:"hits"}).sort_values(by="hits",ascending=False)
+    params = params[["param_key","hits","total_param_hits", "% of total", "url_example"]]
+        
     st.success("Your most crawled parameters have been determined")
-    st.table(paramLst)
+    st.table(params)
     
-    csv = paramLst.to_csv().encode('utf-8')
+    params.to_csv("paramKey_List.csv",index=False)
+    csv = params.to_csv().encode('utf-8')
     
     st.download_button(
      	label="Download table as CSV",
